@@ -18,15 +18,32 @@ class AdviceRepository extends ServiceEntityRepository
 
     public function getAdvicesForCurrentMonth(): array
     {
-        $date = new \DateTime();
-        $month = (int) $date->format('m');
-        $year = (int) $date->format('Y');
+        $now = new \DateTimeImmutable('first day of this month 00:00:00');
+        $end = $now->modify('first day of next month');
 
         return $this->createQueryBuilder('a')
-            ->where('MONTH(a.date) = :month')
-            ->andWhere('YEAR(a.date) = :year')
-            ->setParameter('month', $month)
-            ->setParameter('year', $year)
+            ->where('a.date >= :start')
+            ->andWhere('a.date < :end')
+            ->setParameter('start', $now)
+            ->setParameter('end', $end)
+            ->getQuery()
+            ->getResult();
+    }
+
+    public function getAdvicesForSelectedMonth(int $mois)
+    {
+        $start = new \DateTimeImmutable();
+        $start->setDate($start->format('Y'), $mois, $start->format('d'));
+        $start->setTime(0, 0, 0);
+        $end = clone $start;
+        $end->modify('first day of next month');
+        $end->setTime(00, 00, 00);
+
+        return $this->createQueryBuilder('a')
+            ->where('a.date >= :start')
+            ->andWhere('a.date < :end')
+            ->setParameter('start', $start)
+            ->setParameter('end', $end)
             ->getQuery()
             ->getResult();
     }
