@@ -12,5 +12,6 @@ app.swagger_ui:
 api_routes:
     resource: routes/api.yaml
 
-api_login_check:
-    path: /api/login_check
+api_login:
+    path: /api/auth
+    methods: [POST]

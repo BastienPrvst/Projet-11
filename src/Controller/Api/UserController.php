@@ -10,37 +10,57 @@ use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\PasswordHasher\Hasher\UserPasswordHasherInterface;
 use Symfony\Component\Routing\Attribute\Route;
+use Symfony\Component\Security\Http\Attribute\IsGranted;
 use Symfony\Component\Serializer\SerializerInterface;
 use Symfony\Component\Validator\Validator\ValidatorInterface;
+use OpenApi\Attributes as OA;
+use Symfony\Contracts\HttpClient\HttpClientInterface;
 
 final class UserController extends AbstractController
 {
-    #[Route('/user', name: 'app_user', methods: ['POST'])]
-    public function createUser(
-        Request $request,
-        SerializerInterface $serializer,
-        EntityManagerInterface $em,
-        UserPasswordHasherInterface $passwordHasher,
-        ValidatorInterface $validator
-    ): JsonResponse
+    public function __construct(
+        private readonly HttpClientInterface $httpClient,
+        private readonly Request $request,
+        private readonly SerializerInterface $serializer,
+        private readonly EntityManagerInterface $em,
+        private readonly UserPasswordHasherInterface $passwordHasher,
+        private readonly ValidatorInterface $validator
+    )
     {
-        $user = $serializer->deserialize($request->getContent(), User::class, 'json');
-        $errors = $validator->validate($user);
+    }
+
+    #[OA\RequestBody(
+        required: true,
+        content: new OA\JsonContent(
+            required: ["email", "password", "city"],
+            properties: [
+                new OA\Property(property: "email", type: "string", format: "email"),
+                new OA\Property(property: "password", type: "string", format: "password"),
+                new OA\Property(property: "city", type: "string"),
+            ]
+        )
+    )]
+    #[Route('/user', name: 'app_user', methods: ['POST'])]
+    public function createUser(): JsonResponse
+    {
+        $user = $this->serializer->deserialize($this->request->getContent(), User::class, 'json');
+        $errors = $this->validator->validate($user);
         if (count($errors) > 0) {
-            return new JsonResponse($serializer->serialize($errors, 'json'), Response::HTTP_BAD_REQUEST, [], true);
+            return new JsonResponse($this->serializer->serialize($errors, 'json'), Response::HTTP_BAD_REQUEST, [], true);
         }
 
-        $user->setPassword($passwordHasher->hashPassword($user, $user->getPassword()));
-        $em->persist($user);
-        $em->flush();
+        $user->setPassword($this->passwordHasher->hashPassword($user, $user->getPassword()));
+        $this->em->persist($user);
+        $this->em->flush();
 
-        $jsonUser = $serializer->serialize($user, 'json');
+        $jsonUser = $this->serializer->serialize($user, 'json');
 
         return new JsonResponse($jsonUser, Response::HTTP_CREATED, [], true);
 
     }
-    #[Route('/login', name: 'app_login', methods: ['POST'])]
-    public function authentificate(): JsonResponse
+
+    #[Route('/user/{id}', name: 'app_user_modify', methods: ['PUT'])]
+    public function modifyUser(): JsonResponse
     {
         return $this->json([
             'message' => 'Welcome to your new controller!',
