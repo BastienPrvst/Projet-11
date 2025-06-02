@@ -32,7 +32,7 @@ class AdviceRepository extends ServiceEntityRepository
 
     public function getAdvicesForSelectedMonth(int $mois)
     {
-        $start = new \DateTimeImmutable();
+        $start = new \DateTime();
         $start->setDate($start->format('Y'), $mois, $start->format('d'));
         $start->setTime(0, 0, 0);
         $end = clone $start;
@@ -45,6 +45,6 @@ class AdviceRepository extends ServiceEntityRepository
             ->setParameter('start', $start)
             ->setParameter('end', $end)
             ->getQuery()
-            ->getResult();
+            ->getScalarResult();
     }
 }

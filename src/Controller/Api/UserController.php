@@ -55,7 +55,7 @@ final class UserController extends AbstractController
 
         $jsonUser = $this->serializer->serialize($user, 'json');
 
-        return new JsonResponse("Account Created", Response::HTTP_CREATED, [], true);
+        return new JsonResponse("Account Created", Response::HTTP_CREATED, [], false);
 
     }
 
