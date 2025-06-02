@@ -9,25 +9,23 @@ use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
-use Symfony\Component\PasswordHasher\Hasher\UserPasswordHasherInterface;
 use Symfony\Component\Routing\Attribute\Route;
 use OpenApi\Attributes as OA;
 use Nelmio\ApiDocBundle\Attribute\Security;
-use Symfony\Component\Security\Http\Attribute\IsGranted;
+use Symfony\Component\Serializer\Normalizer\AbstractNormalizer;
 use Symfony\Component\Serializer\SerializerInterface;
 use Symfony\Component\Validator\Validator\ValidatorInterface;
+use Symfony\Contracts\HttpClient\HttpClientInterface;
 
 
 class AdviceController extends AbstractController
 {
 
     public function __construct(
-        private readonly AdviceRepository $adviceRepository,
-        private readonly Request $request,
-        private readonly SerializerInterface $serializer,
+        private readonly AdviceRepository       $adviceRepository,
+        private readonly SerializerInterface    $serializer,
         private readonly EntityManagerInterface $em,
-        private readonly UserPasswordHasherInterface $passwordHasher,
-        private readonly ValidatorInterface $validator
+        private readonly ValidatorInterface     $validator
     )
     {
     }
@@ -35,31 +33,35 @@ class AdviceController extends AbstractController
     #[Route('/conseil', name: 'app_advice', methods: ['GET'])]
     public function getAllAdvices(): JsonResponse
     {
-        $allMonthAdvices = $this->adviceRepository->getAdvicesForCurrentMonth();
+        try {
+            $allMonthAdvices = $this->adviceRepository->getAdvicesForCurrentMonth();
+            return new JsonResponse($this->serializer->serialize($allMonthAdvices, 'json'), Response::HTTP_OK, [], 'true');
+        }catch (\Exception $exception){
+            return new JsonResponse(['error' => $exception->getMessage()], Response::HTTP_INTERNAL_SERVER_ERROR);
+        }
 
-
-        return $this->json([
-            'current-month-advices' => !empty($allMonthAdvices)
-                ? $allMonthAdvices
-                : 'Aucun conseil n\'a été enregistré ce mois-ci',
-        ]);
     }
 
      #[Route('/conseil/{mois}', name: 'app_advice_month', methods: ['GET'])]
-     public function month(int $mois): JsonResponse
+     public function getMontlhyAdvice(int $mois): JsonResponse
      {
          if ($mois < 1 || ($mois > 12)) {
-             return $this->json([
-                 'parameters_error' => 'Le mois n\'est pas valide',
-             ], '400');
+             return new JsonResponse(['error' => 'Mois incorrect.'], Response::HTTP_BAD_REQUEST, [], false);
          }
 
-         $allMonthAdvices = $this->adviceRepository->getAdvicesForSelectedMonth($mois);
-         return $this->json([
-             'selected-month-advices' => !empty($allMonthAdvices)
-                 ? $allMonthAdvices
-                 : 'Pas de conseils trouvés pour ce mois-ci',
-         ]);
+         try {
+             $allMonthAdvices = $this->adviceRepository->getAdvicesForSelectedMonth($mois);
+             if(!empty($allMonthAdvices)){
+                 return new JsonResponse($this->serializer->serialize($allMonthAdvices, 'json'), Response::HTTP_OK, [], true);
+             }
+
+             return new JsonResponse(['info' => 'Aucun conseil trouvé pour le mois selectionné.'], Response::HTTP_OK, [], false
+             );
+
+         }catch (\Exception $exception){
+             return new JsonResponse(['error' => $exception->getMessage()], Response::HTTP_BAD_REQUEST, [], true);
+         }
+
      }
 
      #[OA\RequestBody(
@@ -68,32 +70,97 @@ class AdviceController extends AbstractController
              required: ["description"],
              properties: [
                  new OA\Property(property: "description", type: "string"),
-                 new OA\Property(property: "date", type: "date"),
+                 new OA\Property(property: "date", type: "string", example: "1,4,6,12"),
              ]
          )
      )]
-     #[Security(name: 'Bearer')]
      #[Route('/conseil', name: 'app_advice_create', methods: ['POST'])]
-     public function index3(): JsonResponse
+     public function createAdvice(Request $request): JsonResponse
      {
-         $advice = $this->serializer->deserialize($this->request->getContent(), Advice::class, 'json');
-         $errors = $this->validator->validate($advice);
-         if (count($errors) > 0) {
-             return new JsonResponse($this->serializer->serialize($errors, 'json'), Response::HTTP_BAD_REQUEST, [], true);
+
+         try {
+             $content = $request->getContent();
+             $content = json_decode($content, true, 512, JSON_THROW_ON_ERROR);
+             $monthString = $content['date'] ?? '';
+
+             $allMonth = array_map('trim', explode(',', $monthString));
+             $allAdvices = [];
+             foreach ($allMonth as $month) {
+                 if ((int)$month < 1 || (int)$month > 12) {
+                     return new JsonResponse(
+                         ['error' => sprintf('Mois %s incorrect', $month)],
+                         Response::HTTP_BAD_REQUEST,
+                         [],
+                         false
+                     );
+                 }
+
+                 $advice = new Advice();
+                 $advice->setDescription($content['description']);
+                 $dateToAdd = new \DateTime();
+                 $year = (int)$dateToAdd->format('Y');
+                 $day = (int)$dateToAdd->format('d');
+                 $dateToAdd->setDate($year, (int)$month, $day);
+                 $advice->setDate($dateToAdd);
+                 $errors = $this->validator->validate($advice);
+                 if (count($errors) > 0) {
+                     return new JsonResponse($this->serializer->serialize($errors, 'json'), Response::HTTP_BAD_REQUEST, [], true);
+                 }
+
+                 $allAdvices[] = $advice;
+                 $this->em->persist($advice);
+             }
+
+             $this->em->flush();
+             return new JsonResponse($this->serializer->serialize($allAdvices, 'json'), Response::HTTP_CREATED, [], true);
+         }catch (\Exception $exception){
+             return new JsonResponse($exception->getMessage(), Response::HTTP_BAD_REQUEST, [], true);
          }
-         $this->em->persist($advice);
-         $this->em->flush();
-         return new JsonResponse($this->serializer->serialize($advice, 'json'), Response::HTTP_CREATED, [], true);
+
      }
 
      #[Route('/conseil/{id}', name: 'app_advice_delete', methods: ['DELETE'])]
-     public function deleteAdivce(Advice $advice): JsonResponse
+     public function deleteAdvice(Advice $advice): JsonResponse
      {
-         $this->em->remove($advice);
-         $this->em->flush();
-         return new JsonResponse('Advice with id '.$advice->getId().' deleted', Response::HTTP_OK,[], false);
+         try {
+             $this->em->remove($advice);
+             $this->em->flush();
+             return new JsonResponse([
+                 'success' => sprintf('Le conseil avec l\'ID %s a bien été supprimé', $advice->getId())
+             ], Response::HTTP_OK,[], false);
+         }catch (\Exception $exception){
+             return new JsonResponse($exception->getMessage(), Response::HTTP_BAD_REQUEST, [], true);
+         }
+
      }
 
+    #[OA\RequestBody(
+        required: true,
+        content: new OA\JsonContent(
+            properties: [
+                new OA\Property(property: "description", type: "string"),
+                new OA\Property(property: "date", type: "date", example: "10-10-1998"),
+            ]
+        )
+    )]
+    #[Route('/conseil/{id}', name: 'app_advice_put', methods: ['PUT'])]
+    public function putAdivce(Advice $advice, Request $request): JsonResponse
+    {
+        try {
 
+            $updatedAdvice = $this->serializer->deserialize($request->getContent(),
+                    Advice::class,
+                    'json',
+                    [AbstractNormalizer::OBJECT_TO_POPULATE => $advice]
+                );
+            $this->em->persist($updatedAdvice);
+            $this->em->flush();
 
+            return new JsonResponse(null, Response::HTTP_NO_CONTENT);
+
+        }catch (\Exception $exception){
+            return new JsonResponse(['error' => $exception->getMessage()], Response::HTTP_BAD_REQUEST, [], false);
+        }
+
+    }
 }

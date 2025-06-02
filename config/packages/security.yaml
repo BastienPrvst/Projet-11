@@ -38,7 +38,7 @@ security:
     # Easy way to control access for large sections of your site
     # Note: Only the *first* access control that matches will be used
     access_control:
-        - { path: ^/api/user$, roles: PUBLIC_ACCESS, methods: [ POST ] } #
+        - { path: ^/api/user$, roles: PUBLIC_ACCESS, methods: [ POST ] }
         - { path: ^/api/doc, roles: PUBLIC_ACCESS }
         - { path: ^/api/auth, roles: PUBLIC_ACCESS }
 
@@ -48,7 +48,7 @@ security:
 
         - { path: ^/api/conseil/\d+$, roles: ROLE_USER, methods: [ GET ] }
         - { path: ^/api/conseil$, roles: ROLE_USER, methods: [ GET ] }
-        - { path: ^/api/meteo/\w+$, roles: ROLE_USER, methods: [ GET ] }
+        - { path: ^/api/meteo, roles: ROLE_USER, methods: [ GET ] }
         - { path: ^/api/meteo$, roles: ROLE_USER, methods: [ GET ] }
 
 when@test:
